@@ -4,6 +4,24 @@ import yfinance as yf
 import sqlite3
 import time
 from datetime import date
+import os
+from threading import Thread
+from flask import Flask
+
+# Servidor Web auxiliar para manter o Render ativo
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot Financeiro OK!"
+
+def run():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
 
 TOKEN = "8643839927:AAEInmNYsKyfhnknXqyus1DSfqcLVI7OMmw"
 bot = telebot.TeleBot(TOKEN)
@@ -96,7 +114,7 @@ def analisar_ativo(message):
     try:
         partes = message.text.split()
         if len(partes) < 2:
-            bot.reply_to(message, "⚠️️ Indica o código do ativo. Exemplo: `/analisar PETR4`", parse_mode="Markdown")
+            bot.reply_to(message, "⚠️ Indica o código do ativo. Exemplo: `/analisar PETR4`", parse_mode="Markdown")
             return
 
         ticker_raw = partes[1].upper().strip()
@@ -105,10 +123,29 @@ def analisar_ativo(message):
         bot.send_message(message.chat.id, f"🔍 A procurar dados de *{ticker_raw}* na B3...", parse_mode="Markdown")
         
         stock = yf.Ticker(ticker_b3)
-        info = stock.info
-
-        preco = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose') or 0.0
         
+        # Estratégia de fallback para garantir obtenção do preço
+        preco = 0.0
+        try:
+            hist = stock.history(period="1d")
+            if not hist.empty:
+                preco = float(hist['Close'].iloc[-1])
+        except Exception:
+            pass
+
+        info = {}
+        try:
+            info = stock.info or {}
+        except Exception:
+            pass
+
+        if preco == 0.0:
+            preco = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose') or 0.0
+
+        if preco == 0.0:
+            bot.reply_to(message, f"❌ Não foram encontrados dados para o ativo *{ticker_raw}*. Confirma o código.", parse_mode="Markdown")
+            return
+
         dy_raw = info.get('dividendYield') or 0.0
         dy = dy_raw * 100 if dy_raw < 1.0 else dy_raw
 
@@ -119,10 +156,6 @@ def analisar_ativo(message):
         roe = roe_raw * 100 if roe_raw < 1.0 else roe_raw
         
         nome = info.get('longName') or info.get('shortName') or ticker_raw
-
-        if preco == 0.0:
-            bot.reply_to(message, f"❌ Não foram encontrados dados para o ativo *{ticker_raw}*. Confirma o código.", parse_mode="Markdown")
-            return
 
         markup = types.InlineKeyboardMarkup()
         btn_investir = types.InlineKeyboardButton(f"📲 Investir em {ticker_raw} via Corretora", url=LINK_AFILIADO_FINANCAS)
@@ -145,6 +178,7 @@ def analisar_ativo(message):
     except Exception as e:
         bot.reply_to(message, f"⚠️ Tenta novamente em instantes ({str(e)})")
 
-print("🚀 Bot Financeiro Monetizado Online!")
-bot.polling(non_stop=True, skip_pending=True)
-      
+if __name__ == "__main__":
+    keep_alive()
+    print("🚀 Bot Financeiro Monetizado Online!")
+    bot.polling(non_stop=True, skip_pending=True)
