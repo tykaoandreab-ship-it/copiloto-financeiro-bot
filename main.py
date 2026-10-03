@@ -5,11 +5,14 @@ import sqlite3
 import time
 from datetime import date
 
+# Configuração do Bot Telegram
 TOKEN = "8643839927:AAEInmNYsKyfhnknXqyus1DSfqcLVI7OMmw"
 bot = telebot.TeleBot(TOKEN)
 
-LINK_AFILIADO_FINANCAS = "https://www.xpinc.com.br" 
+# Teu Link de Afiliado Nomad (Código: J3FMR8ZMBL)
+LINK_AFILIADO_FINANCAS = "https://nomad.onelink.me/923907011?af_referrer_customer_id=J3FMR8ZMBL"
 
+# Base de Dados SQLite para controlo do Limite Diário
 conn = sqlite3.connect('bot_financas_vip.db', check_same_thread=False)
 cursor = conn.cursor()
 
@@ -23,7 +26,7 @@ cursor.execute('''
 ''')
 conn.commit()
 
-# Limpa conexões antigas do Telegram
+# Limpa conexões antigas do Telegram ao iniciar
 try:
     bot.remove_webhook()
     time.sleep(1)
@@ -35,10 +38,14 @@ def get_user(user_id):
     return cursor.fetchone()
 
 def checar_limite_e_incrementar(user_id):
+    # Teu ID do Telegram para teres acesso VIP ilimitado permanente
+    ADMIN_ID = 673998781  
+    if user_id == ADMIN_ID:
+        return True, "VIP (Admin)"
+
     user = get_user(user_id)
     hoje = str(date.today())
 
-    # Liberado se for VIP ou Admin
     if user and user[0] == 1:
         return True, "VIP"
 
@@ -59,15 +66,12 @@ def checar_limite_e_incrementar(user_id):
         conn.commit()
         return True, 3 - (consultas + 1)
     else:
-        # Se for você testando e estourou o limite, libera como VIP temporário
-        cursor.execute('UPDATE utilizadores SET is_vip = 1 WHERE user_id = ?', (user_id,))
-        conn.commit()
-        return True, "VIP (Liberado)"
+        return False, 0
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     markup = types.InlineKeyboardMarkup(row_width=1)
-    btn_corretora = types.InlineKeyboardButton("🏦 Abrir Conta em Corretora Zero Taxa", url=LINK_AFILIADO_FINANCAS)
+    btn_corretora = types.InlineKeyboardButton("💵 Abrir Conta Global Nomad (Cupom: J3FMR8ZMBL)", url=LINK_AFILIADO_FINANCAS)
     markup.add(btn_corretora)
     
     msg = (
@@ -75,6 +79,8 @@ def send_welcome(message):
         "Consulta em tempo real de Ações e Fundos Imobiliários.\n\n"
         "🎁 *Plano Free:* 3 Análises gratuitas por dia.\n"
         "⭐ *Plano VIP:* Consultas ilimitadas.\n\n"
+        "🎁 *Bónus Exclusivo Nomad:*\n"
+        "Usa o código `J3FMR8ZMBL` ao abrir tua conta para ganhar até *US$ 20 de cashback*!\n\n"
         "📌 *Como Usar:*\n"
         "Envia `/analisar [CÓDIGO]`\n\n"
         "Exemplos:\n"
@@ -92,7 +98,9 @@ def analisar_ativo(message):
     if not permitido:
         markup = types.InlineKeyboardMarkup()
         btn_vip = types.InlineKeyboardButton("⭐ Assinar Plano VIP (Ilimitado)", url="https://t.me/teu_usuario")
+        btn_nomad = types.InlineKeyboardButton("💵 Abrir Conta Nomad (Bónus US$ 20)", url=LINK_AFILIADO_FINANCAS)
         markup.add(btn_vip)
+        markup.add(btn_nomad)
         bot.reply_to(
             message, 
             "🛑 *Limite Diário de 3 Consultas Atingido!*\n\nVolta amanhã para mais análises ou assina o Plano VIP para acesso ilimitado.", 
@@ -114,7 +122,7 @@ def analisar_ativo(message):
         
         stock = yf.Ticker(ticker_b3)
         
-        # Pega histórico para evitar bloqueio de IP
+        # Pega preço via histórico para evitar bloqueio de IP
         preco = 0.0
         try:
             hist = stock.history(period="5d")
@@ -136,19 +144,27 @@ def analisar_ativo(message):
             bot.reply_to(message, f"❌ Não foram encontrados dados para o ativo *{ticker_raw}*. Confirma o código.", parse_mode="Markdown")
             return
 
-        dy_raw = info.get('dividendYield') or 0.0
-        dy = dy_raw * 100 if dy_raw < 1.0 else dy_raw
+        dy = 0.0
+        try:
+            dy_raw = info.get('dividendYield') or info.get('trailingAnnualDividendYield') or 0.0
+            dy = dy_raw * 100 if dy_raw < 1.0 else dy_raw
+        except Exception:
+            pass
 
-        pl = info.get('trailingPE') or 0.0
+        pl = info.get('trailingPE') or info.get('forwardPE') or 0.0
         pvp = info.get('priceToBook') or 0.0
         
-        roe_raw = info.get('returnOnEquity') or 0.0
-        roe = roe_raw * 100 if roe_raw < 1.0 else roe_raw
+        roe = 0.0
+        try:
+            roe_raw = info.get('returnOnEquity') or 0.0
+            roe = roe_raw * 100 if roe_raw < 1.0 else roe_raw
+        except Exception:
+            pass
         
         nome = info.get('longName') or info.get('shortName') or ticker_raw
 
         markup = types.InlineKeyboardMarkup()
-        btn_investir = types.InlineKeyboardButton(f"📲 Investir em {ticker_raw} via Corretora", url=LINK_AFILIADO_FINANCAS)
+        btn_investir = types.InlineKeyboardButton(f"📲 Investir em Dólar via Nomad (Cupom J3FMR8ZMBL)", url=LINK_AFILIADO_FINANCAS)
         markup.add(btn_investir)
 
         relatorio = (
@@ -171,4 +187,4 @@ def analisar_ativo(message):
 if __name__ == "__main__":
     print("🚀 Bot Financeiro Online!")
     bot.polling(non_stop=True, skip_pending=True)
-    
+            
