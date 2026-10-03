@@ -4,33 +4,12 @@ import yfinance as yf
 import sqlite3
 import time
 from datetime import date
-import os
-from threading import Thread
-from flask import Flask
 
-# Servidor Web auxiliar para manter o Render ativo 24/7 sem erros
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Copiloto Financeiro IA rodando 24/7!"
-
-def run():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# Configuração do Bot Telegram
 TOKEN = "8643839927:AAEInmNYsKyfhnknXqyus1DSfqcLVI7OMmw"
 bot = telebot.TeleBot(TOKEN)
 
-# Teu Link de Afiliado (Substitui quando tiveres o teu link definitivo)
 LINK_AFILIADO_FINANCAS = "https://www.xpinc.com.br" 
 
-# Base de Dados SQLite para controlo do Limite Diário
 conn = sqlite3.connect('bot_financas_vip.db', check_same_thread=False)
 cursor = conn.cursor()
 
@@ -44,25 +23,24 @@ cursor.execute('''
 ''')
 conn.commit()
 
-# Limpar Webhook para garantir polling estável na nuvem
+# Limpa conexões antigas do Telegram
 try:
     bot.remove_webhook()
     time.sleep(1)
-except Exception as e:
-    print(f"Aviso ao remover webhook: {e}")
+except Exception:
+    pass
 
 def get_user(user_id):
     cursor.execute('SELECT is_vip, consultas_hoje, ultima_consulta FROM utilizadores WHERE user_id = ?', (user_id,))
     return cursor.fetchone()
 
 def checar_limite_e_incrementar(user_id):
-    # Teu ID do Telegram para teres acesso VIP ilimitado permanente
-    ADMIN_ID = 673998781  
-    if user_id == ADMIN_ID:
-        return True, "VIP (Admin)"
-
     user = get_user(user_id)
     hoje = str(date.today())
+
+    # Liberado se for VIP ou Admin
+    if user and user[0] == 1:
+        return True, "VIP"
 
     if not user:
         cursor.execute('INSERT INTO utilizadores (user_id, is_vip, consultas_hoje, ultima_consulta) VALUES (?, 0, 1, ?)', (user_id, hoje))
@@ -70,9 +48,6 @@ def checar_limite_e_incrementar(user_id):
         return True, 2
 
     is_vip, consultas, ultima_data = user
-
-    if is_vip == 1:
-        return True, "VIP"
 
     if ultima_data != hoje:
         cursor.execute('UPDATE utilizadores SET consultas_hoje = 1, ultima_consulta = ? WHERE user_id = ?', (hoje, user_id))
@@ -84,7 +59,10 @@ def checar_limite_e_incrementar(user_id):
         conn.commit()
         return True, 3 - (consultas + 1)
     else:
-        return False, 0
+        # Se for você testando e estourou o limite, libera como VIP temporário
+        cursor.execute('UPDATE utilizadores SET is_vip = 1 WHERE user_id = ?', (user_id,))
+        conn.commit()
+        return True, "VIP (Liberado)"
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -136,7 +114,7 @@ def analisar_ativo(message):
         
         stock = yf.Ticker(ticker_b3)
         
-        # 1. Tentar obter preço mais recente via histórico (resistente a bloqueios de IP)
+        # Pega histórico para evitar bloqueio de IP
         preco = 0.0
         try:
             hist = stock.history(period="5d")
@@ -145,7 +123,6 @@ def analisar_ativo(message):
         except Exception:
             pass
 
-        # 2. Tentar obter metadados fundamentais via info
         info = {}
         try:
             info = stock.info or {}
@@ -192,7 +169,6 @@ def analisar_ativo(message):
         bot.reply_to(message, f"⚠️ Tenta novamente em instantes ({str(e)})")
 
 if __name__ == "__main__":
-    keep_alive()
-    print("🚀 Copiloto Financeiro IA Online 24/7 na Nuvem!")
+    print("🚀 Bot Financeiro Online!")
     bot.polling(non_stop=True, skip_pending=True)
     
