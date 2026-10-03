@@ -8,12 +8,12 @@ import os
 from threading import Thread
 from flask import Flask
 
-# Servidor Web auxiliar para manter o Render ativo
+# Servidor Web auxiliar para manter o Render ativo 24/7 sem erros
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot Financeiro OK!"
+    return "Copiloto Financeiro IA rodando 24/7!"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -23,11 +23,14 @@ def keep_alive():
     t = Thread(target=run)
     t.start()
 
+# Configuração do Bot Telegram
 TOKEN = "8643839927:AAEInmNYsKyfhnknXqyus1DSfqcLVI7OMmw"
 bot = telebot.TeleBot(TOKEN)
 
+# Teu Link de Afiliado (Substitui quando tiveres o teu link definitivo)
 LINK_AFILIADO_FINANCAS = "https://www.xpinc.com.br" 
 
+# Base de Dados SQLite para controlo do Limite Diário
 conn = sqlite3.connect('bot_financas_vip.db', check_same_thread=False)
 cursor = conn.cursor()
 
@@ -41,14 +44,23 @@ cursor.execute('''
 ''')
 conn.commit()
 
-bot.remove_webhook()
-time.sleep(1)
+# Limpar Webhook para garantir polling estável na nuvem
+try:
+    bot.remove_webhook()
+    time.sleep(1)
+except Exception as e:
+    print(f"Aviso ao remover webhook: {e}")
 
 def get_user(user_id):
     cursor.execute('SELECT is_vip, consultas_hoje, ultima_consulta FROM utilizadores WHERE user_id = ?', (user_id,))
     return cursor.fetchone()
 
 def checar_limite_e_incrementar(user_id):
+    # Teu ID do Telegram para teres acesso VIP ilimitado permanente
+    ADMIN_ID = 673998781  
+    if user_id == ADMIN_ID:
+        return True, "VIP (Admin)"
+
     user = get_user(user_id)
     hoje = str(date.today())
 
@@ -124,15 +136,16 @@ def analisar_ativo(message):
         
         stock = yf.Ticker(ticker_b3)
         
-        # Estratégia de fallback para garantir obtenção do preço
+        # 1. Tentar obter preço mais recente via histórico (resistente a bloqueios de IP)
         preco = 0.0
         try:
-            hist = stock.history(period="1d")
+            hist = stock.history(period="5d")
             if not hist.empty:
                 preco = float(hist['Close'].iloc[-1])
         except Exception:
             pass
 
+        # 2. Tentar obter metadados fundamentais via info
         info = {}
         try:
             info = stock.info or {}
@@ -169,7 +182,7 @@ def analisar_ativo(message):
             f"📈 *P/L (Preço/Lucro):* {pl:.2f}\n"
             f"🏛️ *P/VP (Preço/Valor Patrimonial):* {pvp:.2f}\n"
             f"🎯 *ROE (Retorno s/ Patrimônio):* {roe:.2f}%\n\n"
-            f"🎯 *Consultas Restantes Hoje:* {restantes}\n"
+            f"🎯 *Status:* {restantes}\n"
             f"💡 _Dados em tempo real via Yahoo Finance._"
         )
 
@@ -180,5 +193,6 @@ def analisar_ativo(message):
 
 if __name__ == "__main__":
     keep_alive()
-    print("🚀 Bot Financeiro Monetizado Online!")
+    print("🚀 Copiloto Financeiro IA Online 24/7 na Nuvem!")
     bot.polling(non_stop=True, skip_pending=True)
+    
