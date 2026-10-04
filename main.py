@@ -1,190 +1,92 @@
-import telebot
-from telebot import types
+import os
+import threading
+from flask import Flask
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import yfinance as yf
-import sqlite3
-import time
-from datetime import date
 
-# Configuração do Bot Telegram
-TOKEN = "8643839927:AAEInmNYsKyfhnknXqyus1DSfqcLVI7OMmw"
-bot = telebot.TeleBot(TOKEN)
+# 1. Servidor Web Mínimo para satisfazer a porta HTTP do Render
+app = Flask(__name__)
 
-# Teu Link de Afiliado Nomad (Código: J3FMR8ZMBL)
-LINK_AFILIADO_FINANCAS = "https://nomad.onelink.me/923907011?af_referrer_customer_id=J3FMR8ZMBL"
+@app.route('/')
+def home():
+    return "Bot Copiloto Financeiro IA está online!", 200
 
-# Base de Dados SQLite para controlo do Limite Diário
-conn = sqlite3.connect('bot_financas_vip.db', check_same_thread=False)
-cursor = conn.cursor()
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
-cursor.execute('''
-    CREATE TABLE IF NOT EXISTS utilizadores (
-        user_id INTEGER PRIMARY KEY,
-        is_vip INTEGER DEFAULT 0,
-        consultas_hoje INTEGER DEFAULT 0,
-        ultima_consulta TEXT
-    )
-''')
-conn.commit()
+# 2. Configurações do Bot
+TOKEN = os.environ.get("TELEGRAM_TOKEN")  # Ou cola o teu token entre aspas se não usares variável de ambiente
+CUPOM_NOMAD = "J3FMR8ZMBL"
+LINK_NOMAD = f"https://nomad.onelink.me/923531008?af_c_id={CUPOM_NOMAD}"
 
-# Limpa conexões antigas do Telegram ao iniciar
-try:
-    bot.remove_webhook()
-    time.sleep(1)
-except Exception:
-    pass
-
-def get_user(user_id):
-    cursor.execute('SELECT is_vip, consultas_hoje, ultima_consulta FROM utilizadores WHERE user_id = ?', (user_id,))
-    return cursor.fetchone()
-
-def checar_limite_e_incrementar(user_id):
-    # Teu ID do Telegram para teres acesso VIP ilimitado permanente
-    ADMIN_ID = 673998781  
-    if user_id == ADMIN_ID:
-        return True, "VIP (Admin)"
-
-    user = get_user(user_id)
-    hoje = str(date.today())
-
-    if user and user[0] == 1:
-        return True, "VIP"
-
-    if not user:
-        cursor.execute('INSERT INTO utilizadores (user_id, is_vip, consultas_hoje, ultima_consulta) VALUES (?, 0, 1, ?)', (user_id, hoje))
-        conn.commit()
-        return True, 2
-
-    is_vip, consultas, ultima_data = user
-
-    if ultima_data != hoje:
-        cursor.execute('UPDATE utilizadores SET consultas_hoje = 1, ultima_consulta = ? WHERE user_id = ?', (hoje, user_id))
-        conn.commit()
-        return True, 2
-
-    if consultas < 3:
-        cursor.execute('UPDATE utilizadores SET consultas_hoje = ? WHERE user_id = ?', (consultas + 1, user_id))
-        conn.commit()
-        return True, 3 - (consultas + 1)
-    else:
-        return False, 0
-
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    btn_corretora = types.InlineKeyboardButton("💵 Abrir Conta Global Nomad (Cupom: J3FMR8ZMBL)", url=LINK_AFILIADO_FINANCAS)
-    markup.add(btn_corretora)
-    
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
-        "📈 *Copiloto Financeiro IA - Análise de Ativos B3*\n\n"
-        "Consulta em tempo real de Ações e Fundos Imobiliários.\n\n"
-        "🎁 *Plano Free:* 3 Análises gratuitas por dia.\n"
-        "⭐ *Plano VIP:* Consultas ilimitadas.\n\n"
-        "🎁 *Bónus Exclusivo Nomad:*\n"
-        "Usa o código `J3FMR8ZMBL` ao abrir tua conta para ganhar até *US$ 20 de cashback*!\n\n"
-        "📌 *Como Usar:*\n"
-        "Envia `/analisar [CÓDIGO]`\n\n"
-        "Exemplos:\n"
-        "• `/analisar PETR4`\n"
-        "• `/analisar VALE3`\n"
-        "• `/analisar HGLG11`\n"
+        "👋 **Olá! Sou o Copiloto Financeiro IA.**\n\n"
+        "Posso analisar ações e FIIs da B3 em tempo real.\n"
+        "Exemplo: envia `/analisar PETR4` ou `/analisar VALE3`."
     )
-    bot.reply_to(message, msg, parse_mode="Markdown", reply_markup=markup)
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
-@bot.message_handler(commands=['analisar'])
-def analisar_ativo(message):
-    user_id = message.chat.id
-    permitido, restantes = checar_limite_e_incrementar(user_id)
-
-    if not permitido:
-        markup = types.InlineKeyboardMarkup()
-        btn_vip = types.InlineKeyboardButton("⭐ Assinar Plano VIP (Ilimitado)", url="https://t.me/teu_usuario")
-        btn_nomad = types.InlineKeyboardButton("💵 Abrir Conta Nomad (Bónus US$ 20)", url=LINK_AFILIADO_FINANCAS)
-        markup.add(btn_vip)
-        markup.add(btn_nomad)
-        bot.reply_to(
-            message, 
-            "🛑 *Limite Diário de 3 Consultas Atingido!*\n\nVolta amanhã para mais análises ou assina o Plano VIP para acesso ilimitado.", 
-            parse_mode="Markdown",
-            reply_markup=markup
-        )
+async def analisar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Uso correto: `/analisar TICKER` (ex: `/analisar PETR4`)", parse_mode="Markdown")
         return
 
+    ticker = context.args[0].upper()
+    if not ticker.endswith(".SA"):
+        ticker_search = f"{ticker}.SA"
+    else:
+        ticker_search = ticker
+
+    await update.message.reply_text(f"🔍 A procurar dados de {ticker} na B3...")
+
     try:
-        partes = message.text.split()
-        if len(partes) < 2:
-            bot.reply_to(message, "⚠️ Indica o código do ativo. Exemplo: `/analisar PETR4`", parse_mode="Markdown")
-            return
+        stock = yf.Ticker(ticker_search)
+        info = stock.info
 
-        ticker_raw = partes[1].upper().strip()
-        ticker_b3 = f"{ticker_raw}.SA"
-        
-        bot.send_message(message.chat.id, f"🔍 A procurar dados de *{ticker_raw}* na B3...", parse_mode="Markdown")
-        
-        stock = yf.Ticker(ticker_b3)
-        
-        # Pega preço via histórico para evitar bloqueio de IP
-        preco = 0.0
-        try:
-            hist = stock.history(period="5d")
-            if not hist.empty:
-                preco = float(hist['Close'].iloc[-1])
-        except Exception:
-            pass
+        preco = info.get("currentPrice") or info.get("regularMarketPrice") or 0.0
+        dy = (info.get("dividendYield") or 0.0) * 100
+        pl = info.get("trailingPE") or 0.0
+        pvp = info.get("priceToBook") or 0.0
+        roe = (info.get("returnOnEquity") or 0.0) * 100
 
-        info = {}
-        try:
-            info = stock.info or {}
-        except Exception:
-            pass
-
-        if preco == 0.0:
-            preco = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose') or 0.0
-
-        if preco == 0.0:
-            bot.reply_to(message, f"❌ Não foram encontrados dados para o ativo *{ticker_raw}*. Confirma o código.", parse_mode="Markdown")
-            return
-
-        dy = 0.0
-        try:
-            dy_raw = info.get('dividendYield') or info.get('trailingAnnualDividendYield') or 0.0
-            dy = dy_raw * 100 if dy_raw < 1.0 else dy_raw
-        except Exception:
-            pass
-
-        pl = info.get('trailingPE') or info.get('forwardPE') or 0.0
-        pvp = info.get('priceToBook') or 0.0
-        
-        roe = 0.0
-        try:
-            roe_raw = info.get('returnOnEquity') or 0.0
-            roe = roe_raw * 100 if roe_raw < 1.0 else roe_raw
-        except Exception:
-            pass
-        
-        nome = info.get('longName') or info.get('shortName') or ticker_raw
-
-        markup = types.InlineKeyboardMarkup()
-        btn_investir = types.InlineKeyboardButton(f"📲 Investir em Dólar via Nomad (Cupom J3FMR8ZMBL)", url=LINK_AFILIADO_FINANCAS)
-        markup.add(btn_investir)
-
-        relatorio = (
-            f"📊 *ANÁLISE FUNDAMENTALISTA: {ticker_raw}*\n"
-            f"🏢 *{nome}*\n\n"
-            f"💵 *Preço Atual:* R$ {preco:.2f}\n"
-            f"💰 *Dividend Yield (12M):* {dy:.2f}%\n"
-            f"📈 *P/L (Preço/Lucro):* {pl:.2f}\n"
-            f"🏛️ *P/VP (Preço/Valor Patrimonial):* {pvp:.2f}\n"
-            f"🎯 *ROE (Retorno s/ Patrimônio):* {roe:.2f}%\n\n"
-            f"🎯 *Status:* {restantes}\n"
-            f"💡 _Dados em tempo real via Yahoo Finance._"
+        resposta = (
+            f"📊 **ANÁLISE FUNDAMENTALISTA: {ticker}**\n\n"
+            f"💵 **Preço Atual:** R$ {preco:.2f}\n"
+            f"💰 **Dividend Yield (12M):** {dy:.2f}%\n"
+            f"📈 **P/L (Preço/Lucro):** {pl:.2f}\n"
+            f"🏛 **P/VP (Preço/Valor Patrimonial):** {pvp:.2f}\n"
+            f"🎯 **ROE (Retorno s/ Património):** {roe:.2f}%\n\n"
+            f"💡 *Dados em tempo real via Yahoo Finance.*"
         )
 
-        bot.reply_to(message, relatorio, parse_mode="Markdown", reply_markup=markup)
+        keyboard = [[
+            InlineKeyboardButton(
+                f"📲 Investir em Dólar via Nomad (Cupom {CUPOM_NOMAD})",
+                url=LINK_NOMAD
+            )
+        ]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(resposta, parse_mode="Markdown", reply_markup=reply_markup)
 
     except Exception as e:
-        bot.reply_to(message, f"⚠️ Tenta novamente em instantes ({str(e)})")
+        await update.message.reply_text(f"❌ Erro ao procurar dados de {ticker}. Verifica se o código está correto.")
+
+def main():
+    # Inicia o servidor Flask numa thread separada
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    # Inicia o Bot do Telegram
+    application = ApplicationBuilder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("analisar", analisar))
+
+    print("Bot a rodar...")
+    application.run_polling()
 
 if __name__ == "__main__":
-    print("🚀 Bot Financeiro Online!")
-    bot.polling(non_stop=True, skip_pending=True)
-            
+    main()
+    
