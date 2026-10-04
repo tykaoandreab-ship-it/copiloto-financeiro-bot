@@ -4,8 +4,16 @@ from flask import Flask
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import yfinance as yf
+import requests
 
-# 1. Servidor Web Mínimo para satisfazer a porta HTTP do Render
+# Configura User-Agent do navegador para evitar bloqueio 401 no Yahoo Finance
+yf.set_tz_cache_location("/tmp/yf_cache")
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+})
+
+# 1. Servidor Web Mínimo para o Render
 app = Flask(__name__)
 
 @app.route('/')
@@ -16,8 +24,8 @@ def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# 2. Configurações do Bot
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
+# 2. Configurações do Bot (Token direto para evitar falhas de leitura)
+TOKEN = "8643839927:AAEInmNYsKyfhnknXqyus1DSfqcLVI7OMmw"
 CUPOM_NOMAD = "J3FMR8ZMBL"
 LINK_NOMAD = f"https://nomad.onelink.me/923531008?af_c_id={CUPOM_NOMAD}"
 
@@ -43,24 +51,19 @@ async def analisar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🔍 A procurar dados de {ticker} na B3...")
 
     try:
-        stock = yf.Ticker(ticker_search)
+        stock = yf.Ticker(ticker_search, session=session)
+        hist = stock.history(period="1d")
         
-        # Obtém o preço atual de forma direta e segura
-        fast = stock.fast_info
-        preco = fast.last_price or 0.0
-        
-        # Tenta obter indicadores do dicionário info
+        if not hist.empty:
+            preco = float(hist['Close'].iloc[-1])
+        else:
+            preco = stock.fast_info.last_price or 0.0
+
         info = stock.info or {}
         dy = (info.get("dividendYield") or 0.0) * 100
         pl = info.get("trailingPE") or 0.0
         pvp = info.get("priceToBook") or 0.0
         roe = (info.get("returnOnEquity") or 0.0) * 100
-
-        # Se o preço vier zerado do fast_info, procura no histórico recente
-        if preco == 0.0:
-            hist = stock.history(period="1d")
-            if not hist.empty:
-                preco = float(hist['Close'].iloc[-1])
 
         resposta = (
             f"📊 **ANÁLISE FUNDAMENTALISTA: {ticker}**\n\n"
@@ -86,10 +89,8 @@ async def analisar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Erro ao procurar dados de {ticker}. Verifica se o código está correto.")
 
 def main():
-    # Inicia o servidor Flask numa thread separada
     threading.Thread(target=run_flask, daemon=True).start()
 
-    # Inicia o Bot do Telegram
     application = ApplicationBuilder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("analisar", analisar))
