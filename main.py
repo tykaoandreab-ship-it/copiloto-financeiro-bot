@@ -17,7 +17,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 # 2. Configurações do Bot
-TOKEN = os.environ.get("TELEGRAM_TOKEN")  # Ou cola o teu token entre aspas se não usares variável de ambiente
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CUPOM_NOMAD = "J3FMR8ZMBL"
 LINK_NOMAD = f"https://nomad.onelink.me/923531008?af_c_id={CUPOM_NOMAD}"
 
@@ -44,13 +44,23 @@ async def analisar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         stock = yf.Ticker(ticker_search)
-        info = stock.info
-
-        preco = info.get("currentPrice") or info.get("regularMarketPrice") or 0.0
+        
+        # Obtém o preço atual de forma direta e segura
+        fast = stock.fast_info
+        preco = fast.last_price or 0.0
+        
+        # Tenta obter indicadores do dicionário info
+        info = stock.info or {}
         dy = (info.get("dividendYield") or 0.0) * 100
         pl = info.get("trailingPE") or 0.0
         pvp = info.get("priceToBook") or 0.0
         roe = (info.get("returnOnEquity") or 0.0) * 100
+
+        # Se o preço vier zerado do fast_info, procura no histórico recente
+        if preco == 0.0:
+            hist = stock.history(period="1d")
+            if not hist.empty:
+                preco = float(hist['Close'].iloc[-1])
 
         resposta = (
             f"📊 **ANÁLISE FUNDAMENTALISTA: {ticker}**\n\n"
@@ -89,4 +99,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
